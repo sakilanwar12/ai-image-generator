@@ -1,185 +1,358 @@
 "use client";
-
 import { useState } from "react";
-import { generateImageAction } from "@/actions/generateImage";
+import {
+  Container,
+  Title,
+  TextInput,
+  Button,
+  Paper,
+  Image,
+  Stack,
+  Group,
+  Text,
+  Skeleton,
+  ActionIcon,
+  Tooltip,
+  Box,
+  Badge,
+  Grid,
+  Card,
+  Progress,
+  Loader,
+} from "@mantine/core";
+import { notifications } from "@mantine/notifications";
+import {
+  BookOpen,
+  Sparkles,
+  Download,
+  ArrowRight,
+  ArrowLeft,
+  RefreshCw,
+} from "lucide-react";
+
+interface StoryPage {
+  text: string;
+  imagePrompt: string;
+  imageUrl?: string;
+  isLoadingImage: boolean;
+}
+
+interface Story {
+  title: string;
+  pages: StoryPage[];
+}
 
 export default function Home() {
-  const [prompt, setPrompt] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState<string>("");
+  const [story, setStory] = useState<Story | null>(null);
+  const [isGeneratingStory, setIsGeneratingStory] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState<number>(0);
 
-  const handleGenerate = async () => {
-    if (!prompt.trim()) return;
-
-    setIsGenerating(true);
-    setError(null);
-    setGeneratedImage(null);
-
+  const generateImageForPage = async (
+    pageIndex: number,
+    imagePrompt: string
+  ) => {
     try {
-      const result = await generateImageAction(prompt);
-      if (result.success && result.image) {
-        setGeneratedImage(result.image);
+      const response = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: imagePrompt }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.imageUrl) {
+        setStory((prev) => {
+          if (!prev) return null;
+          const newPages = [...prev.pages];
+          newPages[pageIndex] = {
+            ...newPages[pageIndex],
+            imageUrl: data.imageUrl,
+            isLoadingImage: false,
+          };
+          return { ...prev, pages: newPages };
+        });
       } else {
-        setError(result.error || "Failed to generate image");
+        throw new Error(data.error || "Failed to generate image");
       }
     } catch (err) {
-      setError("An unexpected error occurred");
-      console.error(err);
-    } finally {
-      setIsGenerating(false);
+      console.error(`Error generating image for page ${pageIndex}:`, err);
+      setStory((prev) => {
+        if (!prev) return null;
+        const newPages = [...prev.pages];
+        newPages[pageIndex] = { ...newPages[pageIndex], isLoadingImage: false };
+        return { ...prev, pages: newPages };
+      });
     }
   };
 
-  const handleDownload = () => {
-    if (!generatedImage) return;
-    const link = document.createElement("a");
-    link.href = generatedImage;
-    link.download = `generated-image-${Date.now()}.png`;
-    link.click();
+  const handleGenerateStory = async () => {
+    if (!prompt.trim()) return;
+
+    setIsGeneratingStory(true);
+    setStory(null);
+    setCurrentPage(0);
+
+    try {
+      const response = await fetch("/api/generate-story", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: prompt.trim() }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.pages) {
+        const initialStory: Story = {
+          title: data.title,
+          pages: data.pages.map((p: any) => ({ ...p, isLoadingImage: true })),
+        };
+        setStory(initialStory);
+        setIsGeneratingStory(false);
+
+        // Trigger image generation for all pages in parallel
+        data.pages.forEach((page: any, index: number) => {
+          generateImageForPage(index, page.imagePrompt);
+        });
+
+        notifications.show({
+          title: "Story Crafted!",
+          message: "The narrative is ready. Illustrations are being painted...",
+          color: "blue",
+        });
+      } else {
+        throw new Error(data.error || "Failed to generate story structure");
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      const errorMessage =
+        err instanceof Error ? err.message : "An unexpected error occurred";
+      notifications.show({
+        title: "Magic Failed",
+        message: errorMessage,
+        color: "red",
+        autoClose: 5000,
+      });
+      setIsGeneratingStory(false);
+    }
   };
 
+  const completedPages =
+    story?.pages.filter((p) => !p.isLoadingImage).length || 0;
+  const progressPercent = story
+    ? (completedPages / story.pages.length) * 100
+    : 0;
+
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center p-6 md:p-24 relative overflow-hidden">
-      {/* Decorative background elements */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-pink-500/10 blur-[120px] rounded-full" />
+    <Box
+      component="main"
+      py={60}
+      style={{
+        minHeight: "100vh",
+        background: "linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%)",
+      }}
+    >
+      <Container size="md">
+        <Stack gap={40}>
+          <Stack gap={10} align="center">
+            <Badge variant="dot" color="grape" size="lg">
+              AI Powered Storytelling
+            </Badge>
+            <Title
+              order={1}
+              size={42}
+              fw={900}
+              style={{ letterSpacing: "-1px" }}
+              variant="gradient"
+              gradient={{ from: "indigo", to: "cyan", deg: 45 }}
+            >
+              Magic Storybook
+            </Title>
+            <Text c="dimmed" size="lg" ta="center" maw={600}>
+              Enter a theme, and watch as Gemini crafts a tale and FLUX
+              illustrates it page by page.
+            </Text>
+          </Stack>
 
-      <div className="w-full max-w-4xl z-10 space-y-12">
-        {/* Header Section */}
-        <div className="text-center space-y-4">
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-white to-pink-400 animate-gradient">
-            Imagine Anything
-          </h1>
-          <p className="text-gray-400 text-lg md:text-xl max-w-2xl mx-auto font-light">
-            Generate stunning, AI-powered images from simple text prompts in
-            seconds.
-          </p>
-        </div>
-
-        {/* Input Section */}
-        <div className="glass-card p-2 md:p-3 flex flex-col md:flex-row gap-3 shadow-2xl relative">
-          <input
-            type="text"
-            placeholder="A futuristic cybernetic city with neon lights..."
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
-            className="input-field border-none bg-transparent focus:ring-0 text-white placeholder:text-gray-500 flex-1 px-6"
-            disabled={isGenerating}
-          />
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating || !prompt.trim()}
-            className="btn-primary flex items-center justify-center gap-2 group"
-          >
-            {isGenerating ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Generating...</span>
-              </>
-            ) : (
-              <>
-                <span>Generate</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-5 w-5 group-hover:translate-x-1 transition-transform"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 7l5 5m0 0l-5 5m5-5H6"
-                  />
-                </svg>
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Display Section */}
-        <div className="space-y-6">
-          {error && (
-            <div className="glass-card bg-red-500/10 border-red-500/20 p-4 text-red-400 text-center animate-shake">
-              {error}
-            </div>
-          )}
-
-          {isGenerating && (
-            <div className="glass-card aspect-video w-full flex flex-col items-center justify-center space-y-4 shimmer overflow-hidden">
-              <div className="relative">
-                <div className="w-16 h-16 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
-                <div className="absolute inset-0 blur-lg bg-indigo-500/20 rounded-full animate-pulse" />
-              </div>
-              <p className="text-indigo-300 font-medium animate-pulse">
-                Our AI is painting your vision...
-              </p>
-            </div>
-          )}
-
-          {!isGenerating && generatedImage && (
-            <div className="glass-card overflow-hidden group relative shadow-2xl transition-all duration-500 hover:scale-[1.01] border-white/10">
-              <img
-                src={generatedImage}
-                alt={prompt}
-                className="w-full aspect-video object-cover transition-all duration-700 hover:brightness-110"
-              />
-              <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black/80 via-black/40 to-transparent translate-y-2 group-hover:translate-y-0 transition-all duration-300 opacity-0 group-hover:opacity-100 flex items-center justify-between">
-                <p className="text-sm text-gray-200 line-clamp-1 italic">
-                  &quot;{prompt}&quot;
-                </p>
-                <button
-                  onClick={handleDownload}
-                  className="p-2 bg-indigo-500 hover:bg-indigo-400 rounded-lg transition-colors shadow-lg"
-                  title="Download Image"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5 text-white"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
+          <Paper withBorder p="xl" radius="lg" shadow="md" bg="white">
+            <Stack gap="md">
+              <TextInput
+                size="lg"
+                placeholder="A small robot who wants to learn how to paint..."
+                label="What is your story about?"
+                value={prompt}
+                onChange={(e) => setPrompt(e.currentTarget.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleGenerateStory()}
+                disabled={isGeneratingStory}
+                leftSection={<BookOpen size={18} />}
+                rightSectionWidth={140}
+                rightSection={
+                  <Button
+                    onClick={handleGenerateStory}
+                    loading={isGeneratingStory}
+                    disabled={!prompt.trim()}
+                    size="sm"
+                    radius="md"
+                    variant="gradient"
+                    gradient={{ from: "indigo", to: "blue" }}
+                    leftSection={<Sparkles size={16} />}
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
+                    Create Story
+                  </Button>
+                }
+              />
+            </Stack>
+          </Paper>
+
+          {story && (
+            <Stack gap="xl">
+              <Stack gap="xs">
+                <Group justify="space-between">
+                  <Title order={2} size="h3" fw={800} c="indigo">
+                    {story.title}
+                  </Title>
+                  <Text size="sm" fw={600} c="dimmed">
+                    {completedPages} / {story.pages.length} Illustrations
+                    Finished
+                  </Text>
+                </Group>
+                <Progress
+                  value={progressPercent}
+                  animated={progressPercent < 100}
+                  color="indigo"
+                  radius="xl"
+                  size="sm"
+                />
+              </Stack>
+
+              <Grid gutter="xl">
+                <Grid.Col span={{ base: 12, md: 7 }}>
+                  <Card
+                    p={0}
+                    radius="lg"
+                    withBorder
+                    shadow="sm"
+                    style={{ overflow: "hidden", aspectRatio: "1/1" }}
+                  >
+                    {story.pages[currentPage].isLoadingImage ? (
+                      <Stack
+                        align="center"
+                        justify="center"
+                        h="100%"
+                        bg="gray.0"
+                        gap="md"
+                      >
+                        <Loader color="indigo" type="bars" />
+                        <Text size="sm" c="dimmed" fw={500} italic>
+                          Illustrating scene {currentPage + 1}...
+                        </Text>
+                      </Stack>
+                    ) : story.pages[currentPage].imageUrl ? (
+                      <Image
+                        src={story.pages[currentPage].imageUrl}
+                        alt={`Story illustration page ${currentPage + 1}`}
+                        fit="cover"
+                        h="100%"
+                        w="100%"
+                      />
+                    ) : (
+                      <Stack
+                        align="center"
+                        justify="center"
+                        h="100%"
+                        bg="red.0"
+                        gap="xs"
+                      >
+                        <Text c="red" size="sm">
+                          Failed to paint this scene.
+                        </Text>
+                        <Button
+                          variant="subtle"
+                          size="xs"
+                          onClick={() => {
+                            setStory((prev) => {
+                              if (!prev) return null;
+                              const newPages = [...prev.pages];
+                              newPages[currentPage] = {
+                                ...newPages[currentPage],
+                                isLoadingImage: true,
+                              };
+                              return { ...prev, pages: newPages };
+                            });
+                            generateImageForPage(
+                              currentPage,
+                              story.pages[currentPage].imagePrompt
+                            );
+                          }}
+                        >
+                          Try Again
+                        </Button>
+                      </Stack>
+                    )}
+                  </Card>
+                </Grid.Col>
+
+                <Grid.Col span={{ base: 12, md: 5 }}>
+                  <Stack justify="space-between" h="100%">
+                    <Paper
+                      p="xl"
+                      withBorder
+                      radius="lg"
+                      bg="rgba(76, 110, 245, 0.03)"
+                      style={{ flex: 1 }}
+                    >
+                      <Stack gap="xl">
+                        <Badge size="xs" variant="light" color="indigo">
+                          Page {currentPage + 1} of {story.pages.length}
+                        </Badge>
+                        <Text
+                          size="xl"
+                          fw={500}
+                          style={{ lineHeight: 1.6, fontFamily: "serif" }}
+                        >
+                          {story.pages[currentPage].text}
+                        </Text>
+                      </Stack>
+                    </Paper>
+
+                    <Group grow gap="md" mt="xl">
+                      <Button
+                        variant="light"
+                        leftSection={<ArrowLeft size={18} />}
+                        disabled={currentPage === 0}
+                        onClick={() => setCurrentPage((prev) => prev - 1)}
+                        radius="md"
+                      >
+                        Back
+                      </Button>
+                      <Button
+                        variant="filled"
+                        rightSection={<ArrowRight size={18} />}
+                        disabled={currentPage === story.pages.length - 1}
+                        onClick={() => setCurrentPage((prev) => prev + 1)}
+                        radius="md"
+                        color="indigo"
+                      >
+                        Next Page
+                      </Button>
+                    </Group>
+                  </Stack>
+                </Grid.Col>
+              </Grid>
+            </Stack>
           )}
 
-          {!isGenerating && !generatedImage && !error && (
-            <div className="glass-card aspect-video w-full flex flex-col items-center justify-center border-dashed border-white/5 bg-white/[0.01]">
-              <div className="p-4 rounded-full bg-white/5 mb-4 group-hover:scale-110 transition-transform duration-500">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-10 w-10 text-gray-500"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1}
-                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                  />
-                </svg>
-              </div>
-              <p className="text-gray-500 font-light">
-                Your masterpiece will appear here
-              </p>
-            </div>
+          {!story && !isGeneratingStory && (
+            <Center py={100}>
+              <Stack align="center" gap="sm" c="dimmed">
+                <BookOpen size={64} strokeWidth={1} />
+                <Text>Your magical journey begins with a prompt.</Text>
+              </Stack>
+            </Center>
           )}
-        </div>
-      </div>
-    </main>
+        </Stack>
+      </Container>
+    </Box>
   );
 }
+
+import { Center } from "@mantine/core";
